@@ -4,15 +4,18 @@ use std::sync::mpsc;
 use std::thread;
 use std::thread::JoinHandle;
 
+type Job = Box<dyn FnOnce() + Send + 'static>;
+type Receiver = Arc<Mutex<mpsc::Receiver<Job>>>;
+
 pub struct ThreadPool {
     workers: Vec<Worker>,
     sender: mpsc::Sender<Job>,
 }
 struct Worker {
     id: usize,
-    thread: JoinHandle<Arc<Mutex<mpsc::Receiver<Job>>>>,
+    thread: JoinHandle<Receiver>,
 }
-type Job = Box<dyn FnOnce() + Send + 'static>;
+
 impl ThreadPool {
     pub fn new(size: usize) -> ThreadPool {
         assert!(size > 0);
@@ -34,7 +37,7 @@ impl ThreadPool {
 }
 
 impl Worker {
-    fn new(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Job>>>) -> Worker {
+    fn new(id: usize, receiver: Receiver) -> Worker {
         let thread = thread::spawn(move || {
             loop {
                 let job = receiver.lock().unwrap().recv().unwrap();
