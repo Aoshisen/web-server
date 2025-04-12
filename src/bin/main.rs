@@ -1,16 +1,22 @@
 use std::thread;
 use std::time::Duration;
+
 use std::{
     fs,
     io::{Read, Write},
     net::{TcpListener, TcpStream},
 };
+use web_server::ThreadPool;
+
 fn main() {
     let addr = "127.0.0.1:7878";
     let listener = TcpListener::bind(addr).unwrap();
+    let pool = ThreadPool::new(5);
     for stream in listener.incoming() {
         let stream = stream.unwrap();
-        handle_connection(stream);
+        pool.execute(|| {
+            handle_connection(stream);
+        });
     }
 }
 
