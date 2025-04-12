@@ -3,11 +3,9 @@ use std::{
     thread,
 };
 
-// 申明我们的线程的类型;
-type Thread = thread::JoinHandle<mpsc::Receiver<Job>>;
 pub struct ThreadPool {
     workers: Vec<Worker>,
-    sender: mpsc::Sender<Job>,
+    sender: mpsc::Sender<Message>,
 }
 
 //如何分配空间存储线程
@@ -39,10 +37,35 @@ impl ThreadPool {
     where
         F: FnOnce() + Send + 'static,
     {
+        //通过Box<T> 包装闭包发送给worker
         let job = Box::new(f);
-        self.sender.send(job).unwrap();
+        self.sender.send(Message::NewJob(job)).unwrap();
     }
 }
+
+//优雅的停机和清理
+impl Drop for ThreadPool {
+    fn drop(&mut self) {
+        println!("Sending terminate message to all workers.");
+
+        for _ in &mut self.workers {
+            //发送停机信息;
+            self.sender.send(Message::Terminate).unwrap();
+        }
+
+        println!("Shutting down all workers.");
+
+        for worker in &mut self.workers {
+            println!("Shutting down worker {}", worker.id);
+
+            if let Some(thread) = worker.thread.take() {
+                //等待停机完成
+                thread.join().unwrap();
+            }
+        }
+    }
+}
+
 // 经过观察我们需要使用execute 来处理闭包里面的逻辑,就像thread::spawn 差不多
 // pub fn spawn<F, T>(f: F) -> JoinHandle<T>
 //     where
@@ -56,22 +79,39 @@ impl ThreadPool {
 // 标准库中的spawn 希望获取一个线程创建就可以立即执行的代码,但是我们希望创建线程并等待稍后传递的代码;
 // 使用Worker 来代替之前的Thread Worker 内部维护 thread:JoinHandle<()>, 然后需要在Worker 上实现方法,他会获取需要运行的代码闭包,然后发送代码到当前worker 运行的线程执行; 我们还会创建一个worker 的唯一id 来在日志或者控制台区分每个worker
 pub struct Worker {
-    thread: Thread,
+    thread: Option<thread::JoinHandle<()>>,
     id: usize,
 }
 impl Worker {
-    fn new(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Job>>>) -> Worker {
+    fn new(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Message>>>) -> Worker {
         // 传递给 thread::spawn 的闭包仍然还只是 引用 了通道的接收端。相反我们需要闭包一直循环，向通道的接收端请求任务，并在得到任务时执行他们。如示例 20-20 对 Worker::new 做出修改：
         let thread = thread::spawn(move || {
             loop {
                 //调用了lock() 来获取receiver 并通过 recv 阻塞当前线程直到有新的可用任务;
-                let job = receiver.lock().unwrap().recv().unwrap();
-                println!("Worker {} got a job; executing.", id);
-                job();
+                let message = receiver.lock().unwrap().recv().unwrap();
+                match message {
+                    Message::NewJob(job) => {
+                        // println!("new job");
+                        job()
+                    }
+                    Message::Terminate => {
+                        println!("terminate");
+                        break;
+                    }
+                }
             }
         });
-        Worker { id, thread }
+        Worker {
+            id,
+            thread: Some(thread),
+        }
     }
 }
 
 type Job = Box<dyn FnOnce() + Send + 'static>;
+
+//向线程发送信号使其停止任务
+enum Message {
+    NewJob(Job),
+    Terminate,
+}
