@@ -115,3 +115,34 @@ fn handle_connection(mut stream: TcpStream) {
 
     // println!("Request: {}", String::from_utf8_lossy(&buffer[..]));
 }
+
+// 我们可以使用线程池的概念来改善当前 效率低下的问题,我们当前如果有一个任务,那么就去线程池里面认领一个线程,处理当前的任务,
+// 当然线程不能无限多个, 如果线程无限多,那么就可能遭遇Dos 攻击(向服务器发送很多请求)占用服务器资源,然后导致服务器不能响应其他正常 请求;
+// 线程池维护了一个固定数量的等待线程,当新进请求时,将请求发送到线程池中做处理.
+// 线程池会维护一个接受请求的队列,每一个线程会拉取一个请求,处理请求,然后索取另一个请求.
+// 通过这种设计,我们就可以同时处理N 个请求,N 为线程池的数量
+// 为每一个请求 分配线程的代码示例 (这种方式不好,容易被Dos 攻击 因为可能会同时来很多请求) 
+// fn main() {
+//     let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
+
+//     for stream in listener.incoming() {
+//         let stream = stream.unwrap();
+
+//         thread::spawn(|| {
+//             handle_connection(stream);
+//         });
+//     }
+// }
+//------------------ 创建固定 容量的线程池使用方法 示例 ---------------------
+// fn main() {
+//     let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
+//     let pool = ThreadPool::new(4);
+
+//     for stream in listener.incoming() {
+//         let stream = stream.unwrap();
+
+//         pool.execute(|| {
+//             handle_connection(stream);
+//         });
+//     }
+// }
