@@ -1,3 +1,5 @@
+use std::thread;
+use std::time::Duration;
 use std::{
     fs,
     io::{Read, Write},
@@ -82,7 +84,14 @@ fn handle_connection(mut stream: TcpStream) {
     //判断是否是 根路径的get请求
     // 字节字符串语法将其转换为字节字符串
     let get = b"GET / HTTP/1.1\r\n";
+    // 模拟慢请求
+	// 现在单线程如果请求了慢请求那么就会阻塞后续请求其他请求,效率很低;
+    let sleep = b"GET /sleep HTTP/1.1\r\n";
     let (status_line, filename) = if buffer.starts_with(get) {
+        ("HTTP/1.1 200 OK", "index.html")
+    } else if buffer.starts_with(sleep) {
+		//等5s 返回;
+        thread::sleep(Duration::from_secs(5));
         ("HTTP/1.1 200 OK", "index.html")
     } else {
         ("HTTP/1.1 404 NOT FOUND", "404.html")
