@@ -1,9 +1,39 @@
 use std::net::TcpListener;
 fn main() {
-    let port = "127.0.0.1:7878";
-    let listener = TcpListener::bind(port).unwrap();
+    // 注意这个addr : 前面的是本机地址,而后面是需要绑定的端口号;
+    // 注意 这里非管理员 只能创建大于1024 的端口号,且如果两个程序绑定了同一个端口,那么就会报错
+    // let addr = "127.0.0.1:7878";
+    // 建立localhost: 也是一样的
+    let addr = "localhost:7878";
+    // 这里的bind 函数其实就是 创建一个TcpListener 的实例,但是在网络领域连接到一个端口叫作 绑定到一个端口(bind to a port)
+    //由于这里的绑定可能会绑定失败,所以这个TcpListener::bind(addr) 的返回值是一个Result<T,E> 我们通过unwrap()在出现这种情况的时候直接终止程序;
+    let listener = TcpListener::bind(addr).unwrap();
+
+    //监听到port 上的 tcp 连接的输入流,当获取到输入流,打印已经建立连接了
+    //TcpListener.incoming() 返回一个迭代器 他提供了一系列的流(tcpStream) stream 表示了客户端和服务端打开的连接;
+    //连接(connection) 代表了客户端连接服务端 服务端响应客户端 以及服务端关闭请求的全部 请求/响应过程
+    //TcpStream 允许读取其来查看客户端发送了什么,然后处理这个流的信息并返回对应的信息
+    //这个for 循环会依次处理每个连接并产生一系列的tcpStream 并供我们处理;
     for stream in listener.incoming() {
+        //实际上我们并没有尝试遍历连接,而是遍历了连接尝试(connection attempts),因为连接本身是可能失败的,
+        // 连接可能会因为很多不同的原因失败,但是大多是系统的原因,比如系统限制同时打开的连接数量;
+
+        //新连接尝试返回一些错误,直到一些打开的连接关闭为止
+        // 1. 为什么新连接会尝试返回错误
+        // listener.incoming() 本身是一个阻塞的迭代器,当每次调用next() 的时候会等待一个新连接,当有新连接进来的时候stream.unwrap() 会尝试接受他,
+        // 错误的原因大多是操作系统限制,比如操作系统维护了一个未接受的连接队列(backlog queue),当新连接到达时,会先进入这个队列;
+        // 但是如果队列满了,那么操作系统就会阻止新的stream 进入该队列,新连接就会被拒绝
+        // 在现在的代码中没有显示的处理流信息, 且没有实际处理(读写数据和关闭连接);
+        // 连接会一直保持打开的状态,直到流被drop ,导致主线程的连接队列被逐渐占满,报错;
+
+        // 2. 为什么这个错误会直到一些打开的连接关闭为止
+        // 当所有未被处理的连接最终被关闭,操作系统中的连接队列才会有空位,此时连接才会被继续接受
+        // 如果连接队列被占满,stream.unwrap() 会返回ConnectionAborted 或者 TooMany open files 的错误;
+
         let stream = stream.unwrap();
+		// 现在建立的连接中可能会重复打印下面的字段,这是因为浏览器会请求一些其他的信息 比如出现在浏览器 tab 标签中的 favicon.ico。
+		// 还有就是浏览器的重试机制,如果连接成功,但是请求到的东西没有,就会重试
+
         println!("建立连接了");
     }
 }
