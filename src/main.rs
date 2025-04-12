@@ -1,10 +1,13 @@
-use std::net::TcpListener;
+use std::{
+    io::{Read, Write},
+    net::{TcpListener, TcpStream},
+};
 fn main() {
     // 注意这个addr : 前面的是本机地址,而后面是需要绑定的端口号;
     // 注意 这里非管理员 只能创建大于1024 的端口号,且如果两个程序绑定了同一个端口,那么就会报错
-    // let addr = "127.0.0.1:7878";
+    let addr = "127.0.0.1:7878";
     // 建立localhost: 也是一样的
-    let addr = "localhost:7878";
+    // let addr = "localhost:7878";
     // 这里的bind 函数其实就是 创建一个TcpListener 的实例,但是在网络领域连接到一个端口叫作 绑定到一个端口(bind to a port)
     //由于这里的绑定可能会绑定失败,所以这个TcpListener::bind(addr) 的返回值是一个Result<T,E> 我们通过unwrap()在出现这种情况的时候直接终止程序;
     let listener = TcpListener::bind(addr).unwrap();
@@ -31,9 +34,50 @@ fn main() {
         // 如果连接队列被占满,stream.unwrap() 会返回ConnectionAborted 或者 TooMany open files 的错误;
 
         let stream = stream.unwrap();
-		// 现在建立的连接中可能会重复打印下面的字段,这是因为浏览器会请求一些其他的信息 比如出现在浏览器 tab 标签中的 favicon.ico。
-		// 还有就是浏览器的重试机制,如果连接成功,但是请求到的东西没有,就会重试
+        // 现在建立的连接中可能会重复打印下面的字段,这是因为浏览器会请求一些其他的信息 比如出现在浏览器 tab 标签中的 favicon.ico。
+        // 还有就是浏览器的重试机制,如果连接成功,但是请求到的东西没有,就会重试
 
-        println!("建立连接了");
+        //
+
+        // println!("建立连接了");
+        handle_connection(stream);
     }
+}
+
+fn handle_connection(mut stream: TcpStream) {
+    // 1. 为什么这个stream 要是可变的,
+    // 这是因为 TcpStream 实例在内部记录了所返回的数据。它可能读取了多于我们请求的数据并保存它们以备下一次请求数据。因此它需要是 mut 的因为其内部状态可能会改变；
+    // 2. 这里的buffer 的作用是什么;
+    // 申明一块具有实际大小的空间用来存储,然后将这个buffer 传递给stream.read() 那么我们就可以得到stream 上的信息了;
+    let mut buffer = [0; 1024];
+    stream.read(&mut buffer).unwrap();
+    // 将buffer 上的数据通过String::from_utf8_lossy 方法打印出来,函数获取一个&u8 并返回一个string,lossy 当遇到无效的utf8 编码时,返回 � (U+FFFD REPLACEMENT CHARACTER)
+    // --------------------------------- 请求----------------------------------------
+    // 简析以下返回的值分别代表什么
+    // 	Method Request-URI HTTP-Version CRLF
+    //  headers CRLF
+    //  message-body
+
+    //  GET / HTTP/1.1
+    // Host: 127.0.0.1:7878
+    // User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:137.0) Gecko/20100101 Firefox/137.0
+    // Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+
+    // Method =>GET Request-URI => / (URL[统一资源标识符号] 和URI[统一资源定位符符] 有细微区别但是在这可以理解成相同的 ) HTTP-Version=>HTTP/1.1 行尾序列(CRLF 回车和换行[carriage return line feed] 可以写成\r\n  当时看不到 因为这是换行的意思 )
+    // headers => Host: 127.0.0.1:7878;
+    // 然后下面就是请求的 message-body 信息(get信息没有body);
+
+    // ----------------------------------- 响应 -----------------------------------------
+    // 对应的响应的格式
+    // HTTP-Version Status-Code Reason-Phrase CRLF
+    // headers CRLF
+    // message-body
+    //我们来编写响应
+
+	//header 为空,但是行尾的序列还是要写
+    let response = "HTTP/1.1 200 OK\r\n\r\n";
+    //返回成功的response,stream.write 接受一个&[u8] 并将这些字节返回给客户端
+    stream.write(response.as_bytes()).unwrap();
+
+    // println!("Request: {}", String::from_utf8_lossy(&buffer[..]));
 }
