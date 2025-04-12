@@ -1,4 +1,5 @@
 use std::{
+    fs,
     io::{Read, Write},
     net::{TcpListener, TcpStream},
 };
@@ -69,15 +70,39 @@ fn handle_connection(mut stream: TcpStream) {
 
     // ----------------------------------- 响应 -----------------------------------------
     // 对应的响应的格式
-    // HTTP-Version Status-Code Reason-Phrase CRLF
-    // headers CRLF
-    // message-body
+    // HTTP-Version Status-Code Reason-Phrase CRLF  // 状态行（例如 `HTTP/1.1 200 OK`）
+    // headers CRLF                                 // 头部（例如 `Content-Length: 123`）
+    // CRLF                                        // 空行（分隔头部和正文）
+    // message-body                                // 响应正文（例如 HTML 内容）
     //我们来编写响应
 
-	//header 为空,但是行尾的序列还是要写
-    let response = "HTTP/1.1 200 OK\r\n\r\n";
+    //header 为空,但是行尾的序列还是要写(没有header 没有body)
+    // let response = "HTTP/1.1 200 OK\r\n\r\n";
+    // 返回真正的html;
+    //判断是否是 根路径的get请求
+    // 字节字符串语法将其转换为字节字符串
+    let get = b"GET / HTTP/1.1\r\n";
+    let (status_line, filename) = if buffer.starts_with(get) {
+        ("HTTP/1.1 200 OK", "hello.html")
+    } else {
+        ("HTTP/1.1 404 NOT FOUND", "404.html")
+    };
+    let contents = fs::read_to_string(filename).unwrap();
+    let response = format!(
+        // 注意这里的行尾序列 Content-Length 换行后 还要再换一行 来接受message-body
+        // 这里的Content-Length 的作用是这样客户端知道需要读取多少字节的正文。 如果没有他,客户端可能会一直等待更多数据
+        "{}\r\nContent-Length: {}\r\n\r\n{}",
+        status_line,
+        contents.len(),
+        contents
+    );
+
     //返回成功的response,stream.write 接受一个&[u8] 并将这些字节返回给客户端
+    // stream.write() 不会保证数据被立即发送,只会把写好的数据放在 操作系统的发送缓冲区;
     stream.write(response.as_bytes()).unwrap();
+    // stream.flush() 会立即清空发送缓冲区;发送所有的缓冲区的数据
+    // 如果不调用这个函数,数据可能会存在缓冲区一段时间,直到缓冲区满了,或者关闭了连接,导致客户端延迟收到信息;
+    stream.flush().unwrap();
 
     // println!("Request: {}", String::from_utf8_lossy(&buffer[..]));
 }
