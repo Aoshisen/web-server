@@ -1,23 +1,36 @@
-use std::thread;
+use std::{
+    sync::{Arc, Mutex, mpsc},
+    thread,
+};
 
 // 申明我们的线程的类型;
-type Thread = thread::JoinHandle<()>;
+type Thread = thread::JoinHandle<mpsc::Receiver<Job>>;
 pub struct ThreadPool {
     workers: Vec<Worker>,
+    sender: mpsc::Sender<Job>,
 }
 
 //如何分配空间存储线程
 impl ThreadPool {
+    // 1. ThreadPool 会创建一个通道并充当发送端。
+    //2. 每个 Worker 将会充当通道的接收端。
+    // 3. 新建一个 Job 结构体来存放用于向通道中发送的闭包。
+    // 4. execute 方法会在通道发送端发出期望执行的任务。
+    // 5.在线程中，Worker 会遍历通道的接收端并执行任何接收到的任务。
     pub fn new(size: usize) -> ThreadPool {
         //使用assert 宏在size 为0 的时候panic;
         assert!(size > 0);
         //创建长度为size 的 vec
         let mut workers = Vec::with_capacity(size);
+        let (sender, receiver) = mpsc::channel();
+        let receiver = Arc::new(Mutex::new(receiver));
         for id in 0..size {
-            //
-            workers.push(Worker::new(id))
+            //在创建work的时候传递闭包,然后后面才好在execute 里面处理闭包逻辑
+            // 将接受端发送到每个worker 内部;
+            //需要使用Mutex 和Arc 来进行多线程传递receiver
+            workers.push(Worker::new(id, Arc::clone(&receiver)));
         }
-        ThreadPool { workers }
+        ThreadPool { workers, sender }
     }
     pub fn execute<F>(&self, f: F)
     //FnOnce 处理线程 只会执行闭包一次:
@@ -26,6 +39,8 @@ impl ThreadPool {
     where
         F: FnOnce() + Send + 'static,
     {
+        let job = Box::new(f);
+        self.sender.send(job).unwrap();
     }
 }
 // 经过观察我们需要使用execute 来处理闭包里面的逻辑,就像thread::spawn 差不多
@@ -45,8 +60,18 @@ pub struct Worker {
     id: usize,
 }
 impl Worker {
-    fn new(id: usize) -> Worker {
-        let thread = thread::spawn(|| {});
+    fn new(id: usize, receiver: Arc<Mutex<mpsc::Receiver<Job>>>) -> Worker {
+        // 传递给 thread::spawn 的闭包仍然还只是 引用 了通道的接收端。相反我们需要闭包一直循环，向通道的接收端请求任务，并在得到任务时执行他们。如示例 20-20 对 Worker::new 做出修改：
+        let thread = thread::spawn(move || {
+            loop {
+                //调用了lock() 来获取receiver 并通过 recv 阻塞当前线程直到有新的可用任务;
+                let job = receiver.lock().unwrap().recv().unwrap();
+                println!("Worker {} got a job; executing.", id);
+                job();
+            }
+        });
         Worker { id, thread }
     }
 }
+
+type Job = Box<dyn FnOnce() + Send + 'static>;
